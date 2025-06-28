@@ -1,1 +1,17 @@
 .idea
+*.bin
+*.hex
+*.uf2
+*.log
+*.o
+*.out
+*.elf
+*.map
+*.a
+*.dSYM
+*.dSYM.zip
+*.DS_Store
+*.swp
+*.swp.*
+*.swp~
+*.swp.bak
