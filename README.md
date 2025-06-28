@@ -1,7 +1,7 @@
 # ESP32-C3 Super Mini OLED
 
 <div align="left">
-  <img src="OLED-TEST/esp32c3-super-mini-oled.png" alt="ESP32-C3 Super Mini OLED" width="50%">
+  <img src="./OLED-TEST/esp32c3-super-mini-oled.png" alt="ESP32-C3 Super Mini OLED" width="50%">
 </div>
 
 ```cpp
