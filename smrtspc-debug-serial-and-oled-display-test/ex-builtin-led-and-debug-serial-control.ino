@@ -5,7 +5,8 @@
 // LED pin configuration
 #define LED_PIN 8
 
-// LED 상태 재정의 (ESP32-C3 내장 LED는 Active-Low 동작)
+// LED 상태 재정의 (ESP32-C3 내장 LED는 Active-Low 동작) 
+// 그래서 LOW면 켜고 HIGH면 끄는 것이다.
 #define LED_ON  LOW
 #define LED_OFF HIGH
 
