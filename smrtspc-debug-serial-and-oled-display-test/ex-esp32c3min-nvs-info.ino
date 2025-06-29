@@ -551,7 +551,7 @@ void setup() {
   delay(200);
 
   WiFi.mode(WIFI_STA);                // 명시적 모드 설정
-  WiFi.begin("U+NetBAD8", "98886$H1A5"); // 직접 설정
+  WiFi.begin("123456", "123456"); // 직접 설정
 
   Serial.print("📶 연결 중");
   int retry = 0;
