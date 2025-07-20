@@ -3,7 +3,6 @@
 // MAX_DEVICES 에 등록해 놓은 4개의 디바이스에게 랜덤값은 esp-now로 보내준다.
 // 
 
-
 #include <esp_now.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
@@ -42,10 +41,6 @@ uint8_t knownDevices[MAX_DEVICES][6] = {
   {0x19, 0x20, 0xBA, 0x93, 0xE1, 0x58}   //  19/10
 };
 //맥주소는 맞는 것으로 해야죠!!!!
-
-
-
-
 
 
 // Self MAC address
@@ -301,3 +296,4 @@ void loop() {
     lastMsgTime = millis();
   }
 }
+
