@@ -1,3 +1,9 @@
+// 
+// 부팅하고 mini oled 화면에 맥주소의 끝 4자리를 출력해준다.
+// MAX_DEVICES 에 등록해 놓은 4개의 디바이스에게 랜덤값은 esp-now로 보내준다.
+// 
+
+
 #include <esp_now.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
