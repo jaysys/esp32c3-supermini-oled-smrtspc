@@ -2,21 +2,24 @@
 // 두개의 디스플레이 사용
 // 크립토 가격을 조회해서 tft display에 표출하는 예제
 // esp32-c3, tft and mini_oled display
+// freeRTOS 사용하여 2개의 독립적인 타스크로 동작
 
-#include <U8g2lib.h>
+#include <Arduino.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
 #include <Wire.h>
+#include <U8g2lib.h>
 #include <SPI.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7789.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/queue.h>
-#include <WiFi.h>
-#include <HTTPClient.h>
 
 // WiFi 설정
-const char* ssid = "1111111";
-const char* password = "000000000";
+const char* ssid = "U+Net ";
+const char* password = "9888 ";
 
 // Upbit API 설정
 const char* btcApiUrl = "https://api.upbit.com/v1/ticker?markets=KRW-BTC";
@@ -30,12 +33,15 @@ typedef struct {
   float btcPrice;
   float ethPrice;
   float linkPrice;
+  float btcPrevClose;
+  float ethPrevClose;
+  float linkPrevClose;
   char formattedDate[11];  // YYYY/MM/DD + null
   char formattedTime[9];   // HH:MM:SS + null
   bool dataValid;
 } CryptoPrices_t;
 
-CryptoPrices_t cryptoPrices = {0, 0, 0, false};
+CryptoPrices_t cryptoPrices = {0, 0, 0, 0, 0, 0, {0}, {0}, false};
 
 // 디스플레이 데이터 구조체
 typedef struct {
@@ -126,6 +132,9 @@ void connectToWiFi() {
 
 // 암호화폐 가격 가져오기 (Upbit API 사용)
 bool fetchCryptoPrices() {
+  bool result = true;
+  HTTPClient http;
+  
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("WiFi not connected, attempting to connect...");
     connectToWiFi();
@@ -135,147 +144,70 @@ bool fetchCryptoPrices() {
     }
   }
 
+  // API endpoints for daily candles (only need current day's data as it includes prev_closing_price)
+  const char* btcCandleUrl = "https://api.upbit.com/v1/candles/days?market=KRW-BTC&count=1";
+  const char* ethCandleUrl = "https://api.upbit.com/v1/candles/days?market=KRW-ETH&count=1";
+  const char* linkCandleUrl = "https://api.upbit.com/v1/candles/days?market=KRW-LINK&count=1";
+  
   bool btcSuccess = false;
   bool ethSuccess = false;
   bool linkSuccess = false;
   
-  // Helper function to parse price from JSON
-  auto parsePriceAndTime = [](const String& json) -> float {
-    float price = 0.0f;
-    
-    // 가격 파싱
-    int tradePricePos = json.indexOf("\"trade_price\":");
-    if (tradePricePos != -1) {
-      int valueStart = json.indexOf(':', tradePricePos) + 1;
-      int valueEnd = json.indexOf(',', valueStart);
-      if (valueEnd == -1) valueEnd = json.indexOf('}', valueStart);
-      
-      if (valueEnd != -1) {
-        String priceStr = json.substring(valueStart, valueEnd);
-        priceStr.trim();
-        price = priceStr.toFloat();
-      }
-    }
-    
-    return price;
-  };
-
-  // BTC 가격 가져오기
-  Serial.println("\nFetching BTC price...");
-  HTTPClient http;
-  http.begin(btcApiUrl);
+  // BTC 가격 및 어제 종가 가져오기
+  http.begin(btcCandleUrl);
   int httpCode = http.GET();
-  
   if (httpCode == HTTP_CODE_OK) {
     String payload = http.getString();
-    Serial.print("BTC API Response: ");
-    Serial.println(payload);
+    DynamicJsonDocument doc(2048);
+    deserializeJson(doc, payload);
     
-    // BTC API 응답에서 trade_date와 trade_time_kst 파싱
-    String dateStr = "";
-    String timeStr = "";
+    // 현재 가격 (가장 최근 캔들의 종가)
+    cryptoPrices.btcPrice = doc[0]["trade_price"];
+    // 어제 종가 (prev_closing_price 사용)
+    cryptoPrices.btcPrevClose = doc[0]["prev_closing_price"];
     
-    // trade_date 파싱 (예: "20250815")
-    int datePos = payload.indexOf("\"trade_date\":");
-    if (datePos != -1) {
-      int dateStart = payload.indexOf('"', datePos + 13) + 1;
-      int dateEnd = payload.indexOf('"', dateStart);
-      if (dateEnd != -1) {
-        dateStr = payload.substring(dateStart, dateEnd);
-      }
-    }
+    // 날짜와 시간 포맷팅 (KST)
+    String dateTime = doc[0]["candle_date_time_kst"].as<String>();
+    snprintf(cryptoPrices.formattedDate, sizeof(cryptoPrices.formattedDate), 
+             "%s/%s/%s", dateTime.substring(0,4).c_str(), dateTime.substring(5,7).c_str(), dateTime.substring(8,10).c_str());
+             
+    String timeStr = dateTime.substring(11, 19);
+    snprintf(cryptoPrices.formattedTime, sizeof(cryptoPrices.formattedTime),
+             "%s", timeStr.c_str());
     
-    // trade_time_kst 파싱 (예: "164005")
-    int timePos = payload.indexOf("\"trade_time_kst\":");
-    if (timePos != -1) {
-      int timeStart = payload.indexOf('"', timePos + 16) + 1;
-      int timeEnd = payload.indexOf('"', timeStart);
-      if (timeEnd != -1) {
-        timeStr = payload.substring(timeStart, timeEnd);
-      }
-    }
-    
-    // 날짜와 시간을 조합하여 저장 (예: "2025/08/15"와 "16:40:05")
-    if (dateStr.length() == 8 && timeStr.length() == 6) {
-      // 날짜 포맷팅 (YYYY/MM/DD)
-      snprintf(cryptoPrices.formattedDate, sizeof(cryptoPrices.formattedDate), 
-              "%s/%s/%s", 
-              dateStr.substring(0, 4).c_str(),
-              dateStr.substring(4, 6).c_str(),
-              dateStr.substring(6, 8).c_str());
-      
-      // 시간 포맷팅 (HH:MM:SS)
-      snprintf(cryptoPrices.formattedTime, sizeof(cryptoPrices.formattedTime),
-              "%s:%s:%s",
-              timeStr.substring(0, 2).c_str(),
-              timeStr.substring(2, 4).c_str(),
-              timeStr.substring(4, 6).c_str());
-      
-      Serial.print("Using trade time (KST): ");
-      Serial.print(cryptoPrices.formattedDate);
-      Serial.print(" ");
-      Serial.println(cryptoPrices.formattedTime);
-    }
-    
-    cryptoPrices.btcPrice = parsePriceAndTime(payload);
-    if (cryptoPrices.btcPrice > 0) {
-      btcSuccess = true;
-      Serial.print("Parsed BTC Price: ");
-      Serial.print(cryptoPrices.btcPrice, 2);
-      Serial.println(" KRW");
-    } else {
-      Serial.println("Failed to parse BTC price");
-    }
+    btcSuccess = true;
   } else {
     Serial.print("BTC API request failed, error: ");
     Serial.println(httpCode);
   }
   http.end();
   
-  // ETH 가격 가져오기
-  Serial.println("\nFetching ETH price...");
-  http.begin(ethApiUrl);
+  // ETH 가격 및 어제 종가 가져오기
+  http.begin(ethCandleUrl);
   httpCode = http.GET();
-  
   if (httpCode == HTTP_CODE_OK) {
     String payload = http.getString();
-    Serial.print("ETH API Response: ");
-    Serial.println(payload);
-    
-    cryptoPrices.ethPrice = parsePriceAndTime(payload);
-    if (cryptoPrices.ethPrice > 0) {
-      ethSuccess = true;
-      Serial.print("Parsed ETH Price: ");
-      Serial.print(cryptoPrices.ethPrice, 2);
-      Serial.println(" KRW");
-    } else {
-      Serial.println("Failed to parse ETH price");
-    }
+    DynamicJsonDocument doc(2048);
+    deserializeJson(doc, payload);
+    cryptoPrices.ethPrice = doc[0]["trade_price"];
+    cryptoPrices.ethPrevClose = doc[0]["prev_closing_price"];
+    ethSuccess = true;
   } else {
     Serial.print("ETH API request failed, error: ");
     Serial.println(httpCode);
   }
   http.end();
   
-  // LINK 가격 가져오기
-  Serial.println("\nFetching LINK price...");
-  http.begin(linkApiUrl);
+  // LINK 가격 및 어제 종가 가져오기
+  http.begin(linkCandleUrl);
   httpCode = http.GET();
-  
   if (httpCode == HTTP_CODE_OK) {
     String payload = http.getString();
-    Serial.print("LINK API Response: ");
-    Serial.println(payload);
-    
-    cryptoPrices.linkPrice = parsePriceAndTime(payload);
-    if (cryptoPrices.linkPrice > 0) {
-      linkSuccess = true;
-      Serial.print("Parsed LINK Price: ");
-      Serial.print(cryptoPrices.linkPrice, 2);
-      Serial.println(" KRW");
-    } else {
-      Serial.println("Failed to parse LINK price");
-    }
+    DynamicJsonDocument doc(2048);
+    deserializeJson(doc, payload);
+    cryptoPrices.linkPrice = doc[0]["trade_price"];
+    cryptoPrices.linkPrevClose = doc[0]["prev_closing_price"];
+    linkSuccess = true;
   } else {
     Serial.print("LINK API request failed, error: ");
     Serial.println(httpCode);
@@ -286,7 +218,7 @@ bool fetchCryptoPrices() {
   if (cryptoPrices.dataValid) {
     Serial.println("\nSuccessfully updated BTC, ETH, and LINK prices");
   } else {
-    Serial.println("\nFailed to update one or both cryptocurrency prices");
+    Serial.println("\nFailed to update some prices");
   }
   
   return cryptoPrices.dataValid;
@@ -405,21 +337,50 @@ void tftTask(void *parameter) {
       tft.setCursor(10, 25);
       tft.print("BTC: ");
       tft.print(formatNumber(cryptoPrices.btcPrice));
-      tft.println(" KRW");
+      tft.print(" KRW ");
+      // 전일 대비 변동률 표시
+      if (cryptoPrices.btcPrevClose > 0) {
+        float btcChange = ((cryptoPrices.btcPrice - cryptoPrices.btcPrevClose) / cryptoPrices.btcPrevClose) * 100;
+        Serial.print("BTC Change: ");
+        Serial.print(btcChange);
+        Serial.println("%");
+        tft.print("(");
+        if (btcChange >= 0) tft.print("+");
+        tft.print(btcChange, 1);
+        tft.print("%)");
+      } else {
+        Serial.println("BTC prev_close is 0 or invalid");
+      }
 
       tft.setTextColor(ST77XX_RED);  
       // 이더리움 가격 표시
       tft.setCursor(10, 35);
       tft.print("ETH: ");
       tft.print(formatNumber(cryptoPrices.ethPrice));
-      tft.println(" KRW");
+      tft.print(" KRW ");
+      // 전일 대비 변동률 표시
+      if (cryptoPrices.ethPrevClose > 0) {
+        float ethChange = ((cryptoPrices.ethPrice - cryptoPrices.ethPrevClose) / cryptoPrices.ethPrevClose) * 100;
+        tft.print("(");
+        if (ethChange >= 0) tft.print("+");
+        tft.print(ethChange, 1);
+        tft.print("%)");
+      }
       
       tft.setTextColor(ST77XX_GREEN);  
       // 링크 가격 표시
       tft.setCursor(10, 45);
       tft.print("LINK:");
       tft.print(formatNumber(cryptoPrices.linkPrice));
-      tft.println(" KRW");
+      tft.print(" KRW ");
+      // 전일 대비 변동률 표시
+      if (cryptoPrices.linkPrevClose > 0) {
+        float linkChange = ((cryptoPrices.linkPrice - cryptoPrices.linkPrevClose) / cryptoPrices.linkPrevClose) * 100;
+        tft.print("(");
+        if (linkChange >= 0) tft.print("+");
+        tft.print(linkChange, 1);
+        tft.print("%)");
+      }
 
       tft.setTextColor(ST77XX_WHITE);  // 다른 텍스트는 흰색으로 되돌리기
       // API 응답에서 파싱한 날짜와 시간을 그대로 사용
@@ -528,3 +489,4 @@ void loop() {
   // 다른 태스크에 CPU 양보
   vTaskDelay(1);
 }
+
