@@ -18,8 +18,8 @@
 #include <freertos/queue.h>
 
 // WiFi 설정
-const char* ssid = "U+Net ";
-const char* password = "9888 ";
+const char* ssid = "U+NetBAD8";
+const char* password = "98886$H1A5";
 
 // Upbit API 설정
 const char* btcApiUrl = "https://api.upbit.com/v1/ticker?markets=KRW-BTC";
@@ -41,7 +41,7 @@ typedef struct {
   bool dataValid;
 } CryptoPrices_t;
 
-CryptoPrices_t cryptoPrices = {0, 0, 0, 0, 0, 0, {0}, {0}, false};
+CryptoPrices_t cryptoPrices = {0, 0, 0, 0, 0, 0, "0000/00/00", "00:00:00", false};
 
 // 디스플레이 데이터 구조체
 typedef struct {
@@ -144,36 +144,40 @@ bool fetchCryptoPrices() {
     }
   }
 
-  // API endpoints for daily candles (only need current day's data as it includes prev_closing_price)
-  const char* btcCandleUrl = "https://api.upbit.com/v1/candles/days?market=KRW-BTC&count=1";
-  const char* ethCandleUrl = "https://api.upbit.com/v1/candles/days?market=KRW-ETH&count=1";
-  const char* linkCandleUrl = "https://api.upbit.com/v1/candles/days?market=KRW-LINK&count=1";
-  
   bool btcSuccess = false;
   bool ethSuccess = false;
   bool linkSuccess = false;
   
   // BTC 가격 및 어제 종가 가져오기
-  http.begin(btcCandleUrl);
+  http.begin(btcApiUrl);
   int httpCode = http.GET();
   if (httpCode == HTTP_CODE_OK) {
     String payload = http.getString();
     DynamicJsonDocument doc(2048);
     deserializeJson(doc, payload);
     
-    // 현재 가격 (가장 최근 캔들의 종가)
+    // 가격 데이터 및 거래 시간 저장
     cryptoPrices.btcPrice = doc[0]["trade_price"];
     // 어제 종가 (prev_closing_price 사용)
     cryptoPrices.btcPrevClose = doc[0]["prev_closing_price"];
     
-    // 날짜와 시간 포맷팅 (KST)
-    String dateTime = doc[0]["candle_date_time_kst"].as<String>();
-    snprintf(cryptoPrices.formattedDate, sizeof(cryptoPrices.formattedDate), 
-             "%s/%s/%s", dateTime.substring(0,4).c_str(), dateTime.substring(5,7).c_str(), dateTime.substring(8,10).c_str());
+    // 거래일자와 거래시간 저장 (YYYYMMDD, HHMMSS 형식)
+    String tradeDate = doc[0]["trade_date_kst"].as<String>();
+    String tradeTime = doc[0]["trade_time_kst"].as<String>();
+    
+    // 날짜 포맷팅 (YYYY/MM/DD)
+    snprintf(cryptoPrices.formattedDate, sizeof(cryptoPrices.formattedDate),
+             "%s/%s/%s", 
+             tradeDate.substring(0, 4).c_str(), 
+             tradeDate.substring(4, 6).c_str(), 
+             tradeDate.substring(6, 8).c_str());
              
-    String timeStr = dateTime.substring(11, 19);
+    // 시간 포맷팅 (HH:MM:SS)
     snprintf(cryptoPrices.formattedTime, sizeof(cryptoPrices.formattedTime),
-             "%s", timeStr.c_str());
+             "%s:%s:%s",
+             tradeTime.substring(0, 2).c_str(),
+             tradeTime.substring(2, 4).c_str(),
+             tradeTime.substring(4, 6).c_str());
     
     btcSuccess = true;
   } else {
@@ -183,7 +187,7 @@ bool fetchCryptoPrices() {
   http.end();
   
   // ETH 가격 및 어제 종가 가져오기
-  http.begin(ethCandleUrl);
+  http.begin(ethApiUrl);
   httpCode = http.GET();
   if (httpCode == HTTP_CODE_OK) {
     String payload = http.getString();
@@ -199,7 +203,7 @@ bool fetchCryptoPrices() {
   http.end();
   
   // LINK 가격 및 어제 종가 가져오기
-  http.begin(linkCandleUrl);
+  http.begin(linkApiUrl);
   httpCode = http.GET();
   if (httpCode == HTTP_CODE_OK) {
     String payload = http.getString();
@@ -308,6 +312,11 @@ String formatNumber(float number) {
 void tftTask(void *parameter) {
   unsigned long lastUpdateAttempt = -updateInterval;  // 시작 즉시 조회하도록 설정
   
+  // 시간 동기화를 위한 변수
+  struct tm timeinfo;
+  char timeStr[9];  // HH:MM:SS + null
+  char dateStr[11]; // YYYY/MM/DD + null
+  
   // TFT 초기 화면 설정 (90도 회전 고려)
   tft.fillScreen(ST77XX_BLACK);
   tft.setCursor(10, 10);
@@ -346,7 +355,7 @@ void tftTask(void *parameter) {
         Serial.println("%");
         tft.print("(");
         if (btcChange >= 0) tft.print("+");
-        tft.print(btcChange, 1);
+        tft.print(btcChange, 2);
         tft.print("%)");
       } else {
         Serial.println("BTC prev_close is 0 or invalid");
@@ -363,7 +372,7 @@ void tftTask(void *parameter) {
         float ethChange = ((cryptoPrices.ethPrice - cryptoPrices.ethPrevClose) / cryptoPrices.ethPrevClose) * 100;
         tft.print("(");
         if (ethChange >= 0) tft.print("+");
-        tft.print(ethChange, 1);
+        tft.print(ethChange, 2);
         tft.print("%)");
       }
       
@@ -378,7 +387,7 @@ void tftTask(void *parameter) {
         float linkChange = ((cryptoPrices.linkPrice - cryptoPrices.linkPrevClose) / cryptoPrices.linkPrevClose) * 100;
         tft.print("(");
         if (linkChange >= 0) tft.print("+");
-        tft.print(linkChange, 1);
+        tft.print(linkChange, 2);
         tft.print("%)");
       }
 
@@ -386,13 +395,17 @@ void tftTask(void *parameter) {
       // API 응답에서 파싱한 날짜와 시간을 그대로 사용
       // 이미 KST 시간이므로 추가 변환 없이 표시
       
+      // API 응답에서 받은 거래일시 사용
+      strncpy(dateStr, cryptoPrices.formattedDate, sizeof(dateStr));
+      strncpy(timeStr, cryptoPrices.formattedTime, sizeof(timeStr));
+      
       // 마지막 업데이트 시간 표시 (90도 회전 고려)
       tft.fillRect(0, TFT_HEIGHT - 10, TFT_WIDTH, TFT_HEIGHT, ST77XX_BLACK);  // 하단 영역 지우기
       tft.setCursor(10, TFT_HEIGHT - 10);  // 하단 여백 조정
       tft.print("Updated: ");
-      tft.print(cryptoPrices.formattedDate);
+      tft.print(dateStr);
       tft.print(" ");
-      tft.print(cryptoPrices.formattedTime);
+      tft.print(timeStr);
       tft.print("   ");  // 이전 텍스트 지우기
       
     } else {
@@ -489,4 +502,3 @@ void loop() {
   // 다른 태스크에 CPU 양보
   vTaskDelay(1);
 }
-
