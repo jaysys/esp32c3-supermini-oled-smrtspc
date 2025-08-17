@@ -18,8 +18,8 @@
 #include <freertos/queue.h>
 
 // WiFi 설정
-const char* ssid = "U+NetBAD8";
-const char* password = "98886$H1A5";
+const char* ssid = "U+Net37BAD";
+const char* password = "9882286$5";
 
 // Upbit API 설정
 const char* btcApiUrl = "https://api.upbit.com/v1/ticker?markets=KRW-BTC";
@@ -341,50 +341,71 @@ void tftTask(void *parameter) {
     tft.fillRect(0, 25, TFT_WIDTH, 70, ST77XX_BLACK);  // 가격 표시 영역만 지우기 (LINK 추가로 높이 증가)
     
     if (cryptoPrices.dataValid) {
-      // 비트코인 가격 표시 (노란색)
-      tft.setTextColor(ST77XX_YELLOW);
+      // 비트코인 가격 및 변동률 표시
+      float btcChange = 0;
+      if (cryptoPrices.btcPrevClose > 0) {
+        btcChange = ((cryptoPrices.btcPrice - cryptoPrices.btcPrevClose) / cryptoPrices.btcPrevClose) * 100;
+        // 변동률에 따라 색상 설정 (0% 이상: 노란색, 0% 미만: 초록색)
+        tft.setTextColor(btcChange >= 0 ? ST77XX_YELLOW : ST77XX_GREEN);
+        
+        Serial.print("BTC Change: ");
+        Serial.print(btcChange);
+        Serial.println("%");
+      } else {
+        tft.setTextColor(ST77XX_WHITE);
+        Serial.println("BTC prev_close is 0 or invalid");
+      }
+      
       tft.setCursor(10, 25);
       tft.print("BTC: ");
       tft.print(formatNumber(cryptoPrices.btcPrice));
       tft.print(" KRW ");
-      // 전일 대비 변동률 표시
+      
       if (cryptoPrices.btcPrevClose > 0) {
-        float btcChange = ((cryptoPrices.btcPrice - cryptoPrices.btcPrevClose) / cryptoPrices.btcPrevClose) * 100;
-        Serial.print("BTC Change: ");
-        Serial.print(btcChange);
-        Serial.println("%");
         tft.print("(");
         if (btcChange >= 0) tft.print("+");
         tft.print(btcChange, 2);
         tft.print("%)");
-      } else {
-        Serial.println("BTC prev_close is 0 or invalid");
       }
 
-      tft.setTextColor(ST77XX_RED);  
-      // 이더리움 가격 표시
+      // 이더리움 가격 및 변동률 표시
+      float ethChange = 0;
+      if (cryptoPrices.ethPrevClose > 0) {
+        ethChange = ((cryptoPrices.ethPrice - cryptoPrices.ethPrevClose) / cryptoPrices.ethPrevClose) * 100;
+        // 변동률에 따라 색상 설정 (0% 이상: 노란색, 0% 미만: 초록색)
+        tft.setTextColor(ethChange >= 0 ? ST77XX_YELLOW : ST77XX_GREEN);
+      } else {
+        tft.setTextColor(ST77XX_WHITE);
+      }
+      
       tft.setCursor(10, 35);
       tft.print("ETH: ");
       tft.print(formatNumber(cryptoPrices.ethPrice));
       tft.print(" KRW ");
-      // 전일 대비 변동률 표시
+      
       if (cryptoPrices.ethPrevClose > 0) {
-        float ethChange = ((cryptoPrices.ethPrice - cryptoPrices.ethPrevClose) / cryptoPrices.ethPrevClose) * 100;
         tft.print("(");
         if (ethChange >= 0) tft.print("+");
         tft.print(ethChange, 2);
         tft.print("%)");
       }
       
-      tft.setTextColor(ST77XX_GREEN);  
-      // 링크 가격 표시
+      // 링크 가격 및 변동률 표시
+      float linkChange = 0;
+      if (cryptoPrices.linkPrevClose > 0) {
+        linkChange = ((cryptoPrices.linkPrice - cryptoPrices.linkPrevClose) / cryptoPrices.linkPrevClose) * 100;
+        // 변동률에 따라 색상 설정 (0% 이상: 노란색, 0% 미만: 초록색)
+        tft.setTextColor(linkChange >= 0 ? ST77XX_YELLOW : ST77XX_GREEN);
+      } else {
+        tft.setTextColor(ST77XX_WHITE);
+      }
+      
       tft.setCursor(10, 45);
       tft.print("LINK:");
       tft.print(formatNumber(cryptoPrices.linkPrice));
       tft.print(" KRW ");
-      // 전일 대비 변동률 표시
+      
       if (cryptoPrices.linkPrevClose > 0) {
-        float linkChange = ((cryptoPrices.linkPrice - cryptoPrices.linkPrevClose) / cryptoPrices.linkPrevClose) * 100;
         tft.print("(");
         if (linkChange >= 0) tft.print("+");
         tft.print(linkChange, 2);
